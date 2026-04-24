@@ -147,15 +147,19 @@ const callApi = async () => {
 };
 ```
 
-### Auth0 Dashboard configuration
+### Update Auth0 application callback URLs
 
-Configure these URLs in Auth0 Dashboard > Applications > Settings:
+**Before asking the user to test the application**, you MUST update the Auth0 application's URL settings to match the app's dev server URL (e.g., `http://localhost:5173` for Vite, `http://localhost:3000` for Next.js). Determine the correct URL from the project's dev server configuration.
 
-- **Allowed Callback URLs:** `http://localhost:5173` (or your dev server URL)
-- **Allowed Logout URLs:** `http://localhost:5173`
-- **Allowed Web Origins:** `http://localhost:5173` (required for silent authentication)
+Update all three URL fields on the Auth0 application:
 
-For production, add your deployed URL to each field as well.
+- **Allowed Callback URLs:** the dev server URL (e.g., `http://localhost:5173`)
+- **Allowed Logout URLs:** the dev server URL
+- **Allowed Web Origins:** the dev server URL (required for silent authentication)
+
+These must be set on the Auth0 application or login/logout will fail with a callback mismatch error. Do not rely on the user to configure this manually — update it programmatically using the connected Auth0 integration (e.g., Auth0 MCP server) before proceeding to test.
+
+For production, add the deployed URL to each field as well.
 
 ## Gotchas
 

@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "skills": {
+    "auth0-react": {
+      "source": "auth0/agent-skills",
+      "sourceType": "github",
+      "computedHash": "87c0bd327ece9e030b345fb4a6a18a2f31cc7163939c89ca678fea2a8769c0a7"
+    }
+  }
+}

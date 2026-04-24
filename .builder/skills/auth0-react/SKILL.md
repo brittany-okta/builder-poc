@@ -10,13 +10,14 @@ metadata:
 
 Add authentication to React single-page applications using @auth0/auth0-react.
 
+> **Important:** This skill must be used together with the `auth0-quickstart` skill. The `auth0-quickstart` skill contains critical instructions for Auth0 application configuration — including programmatically updating callback URLs, logout URLs, and allowed web origins on the Auth0 application before testing. Always consult `auth0-quickstart` for Auth0 tenant and application setup details.
+
 ---
 
 ## Prerequisites
 
 - React 16.11+ application (Vite or Create React App) - supports React 16, 17, 18, and 19
-- Auth0 account and application configured
-- If you don't have Auth0 set up yet, use the `auth0-quickstart` skill first
+- Auth0 account and application configured — refer to the `auth0-quickstart` skill for setup
 
 ## When NOT to Use
 
@@ -106,9 +107,11 @@ export function LoginButton() {
 }
 ```
 
-### 5. Test Authentication
+### 5. Update Auth0 Callback URLs and Test
 
-Start your dev server and test the login flow:
+**Before testing**, update the Auth0 application's Allowed Callback URLs, Allowed Logout URLs, and Allowed Web Origins to match the dev server URL (e.g., `http://localhost:5173` for Vite, `http://localhost:3000` for CRA). Do this programmatically via the connected Auth0 integration — see the `auth0-quickstart` skill for full instructions. Do not ask the user to do this manually.
+
+Then start the dev server and test the login flow:
 
 ```bash
 npm run dev  # Vite
