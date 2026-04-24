@@ -144,6 +144,7 @@ npm start    # CRA
 | Not catching `MfaRequiredError` | Wrap `getAccessTokenSilently` in try/catch and check `instanceof MfaRequiredError` |
 | Making direct HTTP calls to MFA endpoints | Use the `mfa` property from `useAuth0()` — it handles token management automatically |
 | Forgetting refresh tokens for step-up MFA | Set `useRefreshTokens={true}` on Auth0Provider when using `interactiveErrorHandler="popup"` |
+| Guessing at auth errors instead of checking logs | Proactively query Auth0 tenant logs via the connected Auth0 integration to diagnose failures — see the `auth0-quickstart` skill for details |
 
 ---
 

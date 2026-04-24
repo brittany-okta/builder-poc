@@ -166,6 +166,20 @@ These must be set on the Auth0 application or login/logout will fail with a call
 
 For production, add the deployed URL to each field as well.
 
+### Debugging with Auth0 tenant logs
+
+When authentication issues occur, **proactively query the Auth0 tenant logs** via the connected Auth0 integration (e.g., Auth0 MCP server) to diagnose the problem before asking the user for more details. Tenant logs contain detailed information about every authentication event — both successful and failed.
+
+Use tenant logs to:
+
+- **Diagnose login/logout failures** — look for failed authorization events to see the exact error, the `redirect_uri` the app sent, and the client ID used.
+- **Verify configuration** — confirm that token exchange, callback URL matching, and grant types are working correctly after setup.
+- **Debug silent auth issues** — check for `failed silent auth` events when `getAccessTokenSilently()` fails.
+- **Identify misconfigured clients** — spot errors like `unauthorized_client` which indicate wrong `token_endpoint_auth_method` or grant type settings.
+- **Confirm successful flows** — after fixing an issue, check the logs to verify the next login attempt succeeds end-to-end.
+
+When a user reports that login "doesn't work" or encounters an auth error, query the tenant logs first rather than guessing. The log entries will show the root cause (e.g., callback URL mismatch, missing grant type, wrong client configuration) and allow you to fix it directly.
+
 ## Gotchas
 
 - **SPA clients must have `token_endpoint_auth_method` set to `none`.** When creating an Auth0 application for a single-page app, explicitly set `token_endpoint_auth_method` to `none`. SPAs are public clients and cannot securely store a client secret — if this is not set to `none`, token exchange will fail.
