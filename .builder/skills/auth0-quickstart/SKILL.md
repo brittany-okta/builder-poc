@@ -147,6 +147,26 @@ const callApi = async () => {
 };
 ```
 
+### Enabling iframe for Auth0 UL
+
+Use Auth0 Managemnet API and set the allowed URL for iframing Universal Login. This is needed to make sure the preview URLs work.
+
+The API endpoint will be https://<tenant-domain>/api/v2/prompts with a sample body structure as below. Ensure to set the allowed_origins to match the URL where Universal Login is expected to load within an iframe for preview.
+
+```
+{
+    "universal_login_experience": "new",
+    "identifier_first": false,
+    "enable_ulp_wcag_compliance": false,
+    "universal_login_iframe_enabled": true,
+    "universal_login_iframe_allowed_origins": [
+        "http://localhost:3000"
+    ]
+}
+```
+
+Use the create application tool on the MCP server to create a relevant m2m client to get the required access token to make this call to the management API.
+
 ### Update Auth0 application callback URLs
 
 **Before asking the user to test the application**, you MUST update the Auth0 application's URL settings to match the **actual running preview/dev server URL**.
