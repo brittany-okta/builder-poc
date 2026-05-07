@@ -8,6 +8,13 @@ metadata:
 
 # Using My Organization API
 
+> **Agent instructions — read before responding:**
+> - **Never ask if the user has an Auth0 account or tenant.** Always detect it. Check env files, the Auth0 CLI, and the CLI config (see Step 1) before asking anything about Auth0 setup.
+> - It is fine to ask which implementation path the user wants (SaaStart, API-only, or UI Components) if they haven't made it clear.
+> - Only ask about organization selection when multiple organizations exist in the tenant.
+> - **Assume React and Next.js unless the user specifies otherwise.** My Organization API and its tooling are optimized for this stack. Do not ask about framework unless the user has indicated they are not using Next.js.
+> - **Do not ask the user what features or capabilities they want in the dashboard.** The features are determined by what My Organization API supports — they are not configurable. Proceed directly to implementation. My Organization API supports: SSO provider setup, organization settings, and branding. If the user asks about anything else (billing, subscriptions, app settings, user profiles, usage logs, member management, etc.), explain that it is not yet supported by My Organization API and they will need to use the Management API directly with organization-awareness built in (scoping all calls to the user's `org_id`).
+
 **Delegated admin** lets your B2B customers manage their own organization—SSO providers, branding, and settings—without you doing it for them or giving them access to Auth0 directly. My Organization API is the Auth0 feature that makes this possible.
 
 ## What You’ll Build
@@ -52,17 +59,19 @@ My Organization API is a **user-scoped** API — org admins call it directly fro
 
 This is why the audience URL (`/my-org/`) matters and why scopes are granted to the logged-in user rather than a backend service account.
 
-Once you understand the concept, use the **Choose Your Path** table below to find the right implementation approach for your situation.
+Once you understand the concept, use the **Choose Your Path** table below to determine the right implementation approach based on what you detect about the user's setup — do not ask the user which path to take.
 
 ---
 
 ## Choose Your Path
 
+Use the detected tenant configuration and project state to select a path — do not prompt the user to choose:
+
 | | SaaStart | API-only | UI Components |
 |---|---|---|---|
-| **Starting point** | New implementation | Existing delegated admin setup | Existing delegated admin setup |
+| **Starting point** | Any — existing tenant is fine | Existing delegated admin setup | Existing delegated admin setup |
 | **What you build** | Full portal from reference app | Custom UI calling My Org API directly | Drop-in components from `@auth0/universal-components-react` |
-| **Best for** | Fastest greenfield setup | Full control over UX | Pre-built, consistent UI |
+| **Best for** | Fastest path to a working portal | Full control over UX | Pre-built, consistent UI |
 | **Jump to** | Step 2 → SaaStart | Step 2 → Key Patterns | Step 2 → UI Components |
 
 **What you need ready (all paths):**
@@ -75,17 +84,89 @@ Once you understand the concept, use the **Choose Your Path** table below to fin
 
 ## Step 1: Enable My Organization API
 
+> **Always detect before asking.** Run the steps below before prompting the user about their setup. Only ask when detection is genuinely ambiguous (e.g. multiple organizations exist).
+
+### Detect Existing Configuration
+
+Do not ask the user for their Auth0 domain. Check these sources in order — stop at the first one that returns a value:
+
+**1. Environment files:**
+```bash
+grep -h "AUTH0_DOMAIN" .env.local .env.local.user .env 2>/dev/null | head -1
+```
+
+**2. Auth0 CLI (if env files don't have it):**
+```bash
+auth0 tenants list
+```
+Use the tenant marked as active (default).
+
+**3. Auth0 CLI config file:**
+```bash
+cat ~/.config/auth0/config.json 2>/dev/null | grep '"default_tenant"'
+```
+
+Use whichever source returns a domain first. Only ask the user for their Auth0 domain if all three sources return nothing.
+
+### Identify Organization
+
+Once the tenant is known, check which organizations exist:
+
+```bash
+auth0 api get /api/v2/organizations
+```
+
+- **No organizations returned:** Proceed without asking — the user will create one as part of the implementation.
+- **One organization returned:** Use it automatically. Do not prompt the user.
+- **Multiple organizations returned:** List their names and ask the user: _"Which organization should this delegated admin portal be for?"_ then use the selected org's ID throughout.
+
+### Identify Application
+
+Determine which Auth0 application to configure:
+
+- **SaaStart path:** Use the application created by the bootstrap script — do not prompt the user.
+- **Existing setup (not SaaStart):** List existing apps and ask the user which one to update:
+  ```bash
+  auth0 apps list
+  ```
+  Ask: _"Which application should the delegated admin portal use?"_
+- **No existing app and not using SaaStart:** Default the application name to `Delegated Admin Dashboard`.
+
 ### Prerequisites
 - Auth0 tenant with Organizations enabled
 - Application configured for organization-scoped access
 - Management API access for backend operations
 - Node.js v20+ and npm installed
 
-### Dashboard Setup
+### Activate My Organization API
+
+Check if My Organization API is already enabled:
+
+```bash
+auth0 api get /api/v2/resource-servers --query '{"per_page":"100"}' | grep -c "my-org"
+```
+
+If the output is `0` (not yet activated), enable it via CLI:
+
+```bash
+# Replace YOUR_DOMAIN with your Auth0 domain (e.g. your-tenant.us.auth0.com)
+auth0 api post /api/v2/resource-servers --data '{
+  "name": "My Organization API",
+  "identifier": "https://YOUR_DOMAIN/my-org/",
+  "signing_alg": "RS256"
+}'
+```
+
+Alternatively, activate from the dashboard:
 1. Navigate to **Auth0 Dashboard > Applications > APIs**
 2. Locate the **My Organization API** banner
 3. Click **Activate**
-4. The API appears in your Applications > API list
+
+Confirm activation:
+```bash
+auth0 api get /api/v2/resource-servers --query '{"per_page":"100"}' | grep "my-org"
+# Should return the My Organization API entry ✓
+```
 
 ### Client Application Configuration
 Configure your application to access the My Organization API. The example below uses the Auth0 SPA JS / browser SDK (`@auth0/auth0-spa-js`) — see Step 2 for the Next.js server-side equivalent:
@@ -118,9 +199,9 @@ delete:my_org:identity_providers - Remove SSO providers
 
 ### SaaS Developer Workflow
 
-**Starting fresh?** Use the [SaaStart reference application](https://github.com/auth0-ui-components/saas-starter-uicomponents) as your foundation — it's a complete working implementation you can bootstrap in minutes:
+Use the [SaaStart reference application](https://github.com/auth0-ui-components/saas-starter-uicomponents) as your foundation — it's a complete working implementation you can bootstrap in minutes:
 
-> ⚠️ **Use a new, dedicated Auth0 tenant.** The bootstrap script modifies tenant configuration irreversibly and will conflict with existing setups.
+> ⚠️ **The bootstrap script will create roles, organizations, and custom Actions on the tenant.** Make sure you're comfortable with these resources being added before running it.
 
 ```bash
 # Clone the reference application
@@ -250,9 +331,7 @@ export const createInvitation = withServerActionAuth(
 
 #### UI Components
 
-> **Early Access:** Universal Components is currently in Early Access.
-
-`@auth0/universal-components-react` provides pre-built React components for common delegated admin workflows — organization details editing, SSO provider setup, and more. Use these if you have an existing delegated admin setup and want production-ready UI without building custom forms from scratch.
+`@auth0/universal-components-react` provides pre-built React components for common delegated admin workflows — organization details editing, SSO provider setup, and more. Use these when the user wants pre-built UI; use the API-only pattern when they want full control over their UX.
 
 **Install dependencies:**
 ```bash
