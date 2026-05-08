@@ -1,6 +1,6 @@
 ---
 name: using-my-organization-api
-description: Build or extend delegated admin portals for B2B SaaS using Auth0’s My Organization API. Use when a user is new to My Organization API, starting a delegated admin implementation from scratch, adding My Organization API to an existing delegated admin setup, or integrating pre-built UI components into an existing delegated admin setup. Covers Auth0 config, SaaStart quickstart path, API-only integration, UI component integration, and backend validation.
+description: Build or extend portals that let B2B customers manage their own organization settings using Auth0’s My Organization API. Use when a user wants to let customers manage their own SSO, branding, or org settings — including any scenario where responsibility for configuration is delegated from the product owner to the customer: self-service admin portals, customer-managed SSO setup, letting customers configure their own identity providers, giving customers control over their organization without direct Auth0 access, or building a white-label admin experience. Also use when starting a delegated admin implementation from scratch, adding My Organization API to an existing delegated admin setup, or integrating pre-built UI components. Covers Auth0 config, SaaStart quickstart path, API-only integration, UI component integration, and backend validation.
 license: Proprietary
 metadata:
   author: Auth0 Delegated Administration Team <authn-b2b-delegated-admin@okta.com>
@@ -13,7 +13,9 @@ metadata:
 > - It is fine to ask which implementation path the user wants (SaaStart, API-only, or UI Components) if they haven't made it clear.
 > - Only ask about organization selection when multiple organizations exist in the tenant.
 > - **Assume React and Next.js unless the user specifies otherwise.** My Organization API and its tooling are optimized for this stack. Do not ask about framework unless the user has indicated they are not using Next.js.
+> - **If the codebase is empty and no stack is specified, default to React + Next.js and use the UI Components path** (i.e. scaffold a Next.js app and integrate `@auth0/universal-components-react`). Do not ask — just proceed with this default and inform the user of the choice.
 > - **Do not ask the user what features or capabilities they want in the dashboard.** The features are determined by what My Organization API supports — they are not configurable. Proceed directly to implementation. My Organization API supports: SSO provider setup, organization settings, and branding. If the user asks about anything else (billing, subscriptions, app settings, user profiles, usage logs, member management, etc.), explain that it is not yet supported by My Organization API and they will need to use the Management API directly with organization-awareness built in (scoping all calls to the user's `org_id`).
+> - **Before starting the dev server, always run the pre-flight checks in "Configure Application URLs" and fix any issues found automatically** — do not wait for the user to encounter errors. Check and fix: callback/logout/web origin URLs on the Auth0 application, required env vars in `.env.local`, and org membership for the test user. If anything is missing, fix it silently and confirm what was done.
 
 **Delegated admin** lets your B2B customers manage their own organization—SSO providers, branding, and settings—without you doing it for them or giving them access to Auth0 directly. My Organization API is the Auth0 feature that makes this possible.
 
@@ -88,25 +90,37 @@ Use the detected tenant configuration and project state to select a path — do 
 
 ### Detect Existing Configuration
 
-Do not ask the user for their Auth0 domain. Check these sources in order — stop at the first one that returns a value:
+Run `detect-stack.mjs` to read the project's framework, package manager, Tailwind setup, existing Auth0 config, and key file paths in one pass. Use its output throughout all subsequent steps — do not grep env files or inspect package.json manually.
 
-**1. Environment files:**
 ```bash
-grep -h "AUTH0_DOMAIN" .env.local .env.local.user .env 2>/dev/null | head -1
+node <skill-path>/scripts/detect-stack.mjs <project-root>
 ```
 
-**2. Auth0 CLI (if env files don't have it):**
-```bash
-auth0 tenants list
-```
-Use the tenant marked as active (default).
+Key fields to extract from the output:
+- `data.auth0.domain` — use as the tenant domain if set; otherwise fall back to CLI
+- `data.auth0.clientId` — use if set
+- `data.framework` — `nextjs` or `react-spa`
+- `data.tailwind.major` / `data.cssPath` — needed for theme extraction and verify-setup
+- `data.mainCssFile` — path to the main CSS file (needed for extract-theme.mjs)
+- `data.packageManager` / `data.installCmd` — use for all install commands
 
-**3. Auth0 CLI config file:**
+If `data.auth0.domain` is not set, check the Auth0 CLI:
 ```bash
+auth0 tenants list        # use the active tenant
 cat ~/.config/auth0/config.json 2>/dev/null | grep '"default_tenant"'
 ```
 
-Use whichever source returns a domain first. Only ask the user for their Auth0 domain if all three sources return nothing.
+Only ask the user for their Auth0 domain if all sources return nothing.
+
+### Validate Auth0 CLI Session
+
+Once the domain is known, validate the CLI session before running any Auth0 operations:
+
+```bash
+node <skill-path>/scripts/validate-auth0.mjs --domain <tenant-domain>
+```
+
+If the script returns an error, follow the `fallback_instructions` in the output to re-authenticate, then re-run before continuing.
 
 ### Identify Organization
 
@@ -138,35 +152,42 @@ Determine which Auth0 application to configure:
 - Management API access for backend operations
 - Node.js v20+ and npm installed
 
-### Activate My Organization API
+### Bootstrap Auth0 Tenant
 
-Check if My Organization API is already enabled:
+> **SaaStart note:** The SaaStart repo has its own bootstrap — skip this step and run `npm run auth0:bootstrap YOUR_DOMAIN` from the SaaStart repo instead.
 
-```bash
-auth0 api get /api/v2/resource-servers --query '{"per_page":"100"}' | grep -c "my-org"
-```
-
-If the output is `0` (not yet activated), enable it via CLI:
+For all other paths (API-only, UI Components), run `bootstrap.mjs` to idempotently configure all required Auth0 resources: My Organization API resource server, application client, callback/logout/web origin URLs, client grants, database connection, admin role, and demo organization.
 
 ```bash
-# Replace YOUR_DOMAIN with your Auth0 domain (e.g. your-tenant.us.auth0.com)
-auth0 api post /api/v2/resource-servers --data '{
-  "name": "My Organization API",
-  "identifier": "https://YOUR_DOMAIN/my-org/",
-  "signing_alg": "RS256"
-}'
+node <skill-path>/scripts/bootstrap.mjs \
+  --domain <tenant-domain> \
+  --features myorg \
+  --framework nextjs \
+  --app-name "<app-name>" \
+  --port 3000
 ```
 
-Alternatively, activate from the dashboard:
-1. Navigate to **Auth0 Dashboard > Applications > APIs**
-2. Locate the **My Organization API** banner
-3. Click **Activate**
+The script outputs a JSON object with `data.env_vars` — write every key/value pair into `.env.local`:
 
-Confirm activation:
 ```bash
-auth0 api get /api/v2/resource-servers --query '{"per_page":"100"}' | grep "my-org"
-# Should return the My Organization API entry ✓
+# Example: write env vars from bootstrap output to .env.local
+# (Parse the JSON output and append each key=value line)
 ```
+
+The script is **idempotent** — safe to re-run if it fails partway through. If it exits with `status: "partial"`, check `error.fallback_instructions` and re-run after resolving.
+
+### Verify Setup
+
+After bootstrapping (or after the SaaStart bootstrap), run `verify-setup.mjs` to confirm everything is wired up correctly before starting the dev server:
+
+```bash
+node <skill-path>/scripts/verify-setup.mjs \
+  --project-root <project-root> \
+  --framework <framework> \
+  --css-path <cssPath>
+```
+
+For any check that returns `pass: false`, apply the fix in its `fix` field automatically — do not ask the user. Re-run until all checks pass.
 
 ### Client Application Configuration
 Configure your application to access the My Organization API. The example below uses the Auth0 SPA JS / browser SDK (`@auth0/auth0-spa-js`) — see Step 2 for the Next.js server-side equivalent:
@@ -339,6 +360,20 @@ npm install @auth0/universal-components-react react-hook-form
 ```
 
 Also required: **Shadcn UI** and **Tailwind CSS v3** — see the [Universal Components docs](https://auth0.com/docs/get-started/universal-components/universal-components-overview) for setup.
+
+**Extract theme overrides from the project's existing CSS:**
+
+Use `extract-theme.mjs` to generate a complete Auth0 component theme override block from the project's CSS variables. Use `data.mainCssFile` and `data.cssPath` from the `detect-stack.mjs` output:
+
+```bash
+node <skill-path>/scripts/extract-theme.mjs \
+  --css-file <project-root>/<mainCssFile> \
+  --css-path <cssPath>
+```
+
+From the output:
+- Apply `data.generatedOverrideBlock` verbatim to the project's main CSS file (`:root` block)
+- Pass `data.themeSettingsVariables` as the `themeSettings` prop on `Auth0ComponentProvider`
 
 **Available components:**
 - `OrganizationDetailsEdit` — view and edit organization settings and branding (recommended starting point)
@@ -551,6 +586,35 @@ Every mistake here has been reported by developers implementing My Organization 
   1. Add `offline_access` to your My Organization API scopes
   2. Ensure refresh tokens are stored in Next.js session
 - **Result:** Users can stay logged in for long admin tasks without interruption ✓
+
+**9. "Callback URL mismatch" or "callback URL not set" at login**
+- **Cause:** The Auth0 application doesn't have the app's callback URL in its Allowed Callback URLs list
+- **Fix:**
+  1. Go to Auth0 Dashboard > Applications > Applications > your app > Settings
+  2. Add to **Allowed Callback URLs**: `http://localhost:3000/api/auth/callback`
+  3. Add to **Allowed Logout URLs**: `http://localhost:3000`
+  4. Add to **Allowed Web Origins**: `http://localhost:3000`
+  5. Save and retry login
+  Or via CLI: `auth0 api patch "v2/clients/YOUR_CLIENT_ID" --data '{"callbacks":["http://localhost:3000/api/auth/callback"],"allowed_logout_urls":["http://localhost:3000"],"web_origins":["http://localhost:3000"]}'`
+- **Verify:** Login completes and redirects back to `http://localhost:3000/dashboard` ✓
+
+**10. "Invalid state" error after login redirect**
+- **Cause:** `AUTH0_SECRET` is missing, empty, or too short — this causes the session state cookie to be invalid or unreadable
+- **Fix:**
+  1. Generate a secret: `openssl rand -hex 32`
+  2. Add to your `.env.local`: `AUTH0_SECRET=<generated value>`
+  3. Also ensure `AUTH0_BASE_URL=http://localhost:3000` is set and matches your running app URL
+  4. Restart the dev server
+- **Verify:** Login flow completes without errors; check that `AUTH0_SECRET` is at least 32 characters ✓
+
+**11. "Not authorized" after login**
+- **Cause:** The logged-in user is not a member of the organization, or the organization's connection is not enabled for this application
+- **Fix:**
+  1. In Auth0 Dashboard > Organizations > your org > Members, confirm the user is listed
+  2. In Auth0 Dashboard > Organizations > your org > Connections, confirm your database connection is enabled
+  3. In Auth0 Dashboard > Applications > your app > Organizations, confirm the org is associated with the app
+  4. If testing with a new account, create the account first, then add it as an org member with the admin role
+- **Verify:** User can log in and `session.user.org_id` is populated ✓
 
 ## After Your Implementation
 
