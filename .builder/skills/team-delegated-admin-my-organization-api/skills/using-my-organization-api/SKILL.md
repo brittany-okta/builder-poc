@@ -14,6 +14,7 @@ metadata:
 > - Only ask about organization selection when multiple organizations exist in the tenant.
 > - **Assume React and Next.js unless the user specifies otherwise.** My Organization API and its tooling are optimized for this stack. Do not ask about framework unless the user has indicated they are not using Next.js.
 > - **If the codebase is empty and no stack is specified, default to React + Next.js and use the UI Components path** (i.e. scaffold a Next.js app and integrate `@auth0/universal-components-react`). Do not ask — just proceed with this default and inform the user of the choice.
+> - **Do not create database resources.** Auth0 is the source of truth for organizations and users. Do not introduce Prisma, Supabase, MongoDB, SQLite, or any other database integration unless the user explicitly asks for one. All org and user data should be read from Auth0 via the My Organization API or Management API.
 > - **Do not ask the user what features or capabilities they want in the dashboard.** The features are determined by what My Organization API supports — they are not configurable. Proceed directly to implementation. My Organization API supports: SSO provider setup, organization settings, and branding. If the user asks about anything else (billing, subscriptions, app settings, user profiles, usage logs, member management, etc.), explain that it is not yet supported by My Organization API and they will need to use the Management API directly with organization-awareness built in (scoping all calls to the user's `org_id`).
 > - **Before starting the dev server, always run the pre-flight checks in "Configure Application URLs" and fix any issues found automatically** — do not wait for the user to encounter errors. Check and fix: callback/logout/web origin URLs on the Auth0 application, required env vars in `.env.local`, and org membership for the test user. If anything is missing, fix it silently and confirm what was done.
 
@@ -615,6 +616,24 @@ Every mistake here has been reported by developers implementing My Organization 
   3. In Auth0 Dashboard > Applications > your app > Organizations, confirm the org is associated with the app
   4. If testing with a new account, create the account first, then add it as an org member with the admin role
 - **Verify:** User can log in and `session.user.org_id` is populated ✓
+
+**12. "The client was not found" error**
+- **Cause:** `AUTH0_CLIENT_ID` in `.env.local` doesn't match any application on the tenant — usually because the bootstrap created the client but the env vars weren't written, or the wrong tenant domain is being used
+- **Fix:**
+  1. Run `auth0 apps list` and find the app created during bootstrap
+  2. Copy its `client_id` value
+  3. Update `AUTH0_CLIENT_ID` (and `AUTH0_CLIENT_SECRET`) in `.env.local` to match
+  4. Confirm `AUTH0_DOMAIN` matches the tenant the app was created on
+  5. Restart the dev server
+- **Verify:** Run `node <skill-path>/scripts/verify-setup.mjs --project-root . --framework nextjs` and confirm `env_vars_present` passes ✓
+
+**13. Dev server crashes on startup with TCP/socket errors**
+- **Cause:** A bad Auth0 configuration (missing or mismatched env vars) causes the Next.js server to throw during module initialization, which crashes the process before it can bind to the port
+- **Fix:**
+  1. Check `.env.local` for missing `AUTH0_SECRET`, `AUTH0_CLIENT_ID`, `AUTH0_CLIENT_SECRET`, or `AUTH0_DOMAIN`
+  2. Re-run `node <skill-path>/scripts/verify-setup.mjs --project-root . --framework nextjs` and apply all fixes
+  3. Restart the dev server only after all checks pass
+- **Verify:** `npm run dev` starts without errors and binds to `http://localhost:3000` ✓
 
 ## After Your Implementation
 
