@@ -12,6 +12,7 @@ metadata:
 > - **Never ask if the user has an Auth0 account or tenant.** Always detect it. Check env files, the Auth0 CLI, and the CLI config (see Step 1) before asking anything about Auth0 setup.
 > - Only ask about organization selection when multiple organizations exist in the tenant.
 > - **Assume React and Next.js unless the user specifies otherwise.** My Organization API and its tooling are optimized for this stack. Do not ask about framework unless the user has indicated they are not using Next.js.
+> - **Prefer Auth0 CLI and Auth0 developer tooling over manual steps wherever possible.** Use `auth0` CLI commands, the scripts in `<skill-path>/scripts/`, Auth0 SDKs (`@auth0/nextjs-auth0`, `@auth0/myorganization-js`, `@auth0/universal-components-react`), and the Auth0 Dashboard before reaching for general-purpose tools or writing custom implementations.
 > - **Be prescriptive. Do not reinvent auth flows, login pages, dashboard layouts, or session handling.** Follow the path defined in "Choose Your Path" exactly. Use SaaStart patterns as the reference for all auth and session setup. Do not invent custom implementations of things SaaStart or the Universal Components docs already define.
 > - **Determine the path from the decision tree in "Choose Your Path" — do not ask the user to choose.** Detect the project state and follow the tree. Only ask if the project state is genuinely ambiguous after detection.
 > - **Empty codebase with no specified stack:** scaffold Next.js, bootstrap with SaaStart, and use Universal Components. Inform the user of the choice, do not ask.
@@ -86,8 +87,9 @@ Does an existing codebase exist?
           │
           └── NO → Add UI using Universal Components
                     (Step 2 → UI Components)
-                    If the framework is incompatible with Universal Components,
-                    rebuild the UI calling My Org API directly.
+                    Install missing dependencies (Shadcn, Tailwind) if needed —
+                    do NOT skip to custom UI because a dependency is missing.
+                    Only fall back to custom UI if the framework is non-React.
 ```
 
 **What you need ready (all paths):**
@@ -374,7 +376,21 @@ export const createInvitation = withServerActionAuth(
 
 Use this path when an existing app does **not** yet have UI for a delegated admin use case. Add it using `@auth0/universal-components-react` — do not build custom forms from scratch. Follow the [Universal Components docs](https://auth0.com/docs/get-started/universal-components/universal-components-overview) exactly.
 
-If the project's framework is incompatible with Universal Components (non-React), rebuild the UI in whatever framework is available — but still call My Org API directly using the SDK pattern above.
+> **Only fall back to custom UI if the framework is non-React.** Missing dependencies (Shadcn, Tailwind, react-hook-form) are not a reason to skip Universal Components — install them first. Do not interpret a missing dependency as framework incompatibility.
+
+**Before installing Universal Components, check and install all required dependencies:**
+
+```bash
+# 1. Check detect-stack output for shadcn.installed and tailwind.installed
+# If shadcn.installed: false — install and configure Shadcn UI first:
+npx shadcn@latest init
+
+# If tailwind.installed: false — install Tailwind CSS:
+npm install -D tailwindcss postcss autoprefixer
+npx tailwindcss init -p
+```
+
+Do not proceed to Universal Components until `shadcn.installed: true` and `tailwind.installed: true`.
 
 `@auth0/universal-components-react` provides pre-built React components for SSO provider setup, organization details editing, and more.
 
