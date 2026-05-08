@@ -10,10 +10,11 @@ metadata:
 
 > **Agent instructions — read before responding:**
 > - **Never ask if the user has an Auth0 account or tenant.** Always detect it. Check env files, the Auth0 CLI, and the CLI config (see Step 1) before asking anything about Auth0 setup.
-> - It is fine to ask which implementation path the user wants (SaaStart, API-only, or UI Components) if they haven't made it clear.
 > - Only ask about organization selection when multiple organizations exist in the tenant.
 > - **Assume React and Next.js unless the user specifies otherwise.** My Organization API and its tooling are optimized for this stack. Do not ask about framework unless the user has indicated they are not using Next.js.
-> - **If the codebase is empty and no stack is specified, default to React + Next.js and use the UI Components path** (i.e. scaffold a Next.js app and integrate `@auth0/universal-components-react`). Do not ask — just proceed with this default and inform the user of the choice.
+> - **Be prescriptive. Do not reinvent auth flows, login pages, dashboard layouts, or session handling.** Follow the path defined in "Choose Your Path" exactly. Use SaaStart patterns as the reference for all auth and session setup. Do not invent custom implementations of things SaaStart or the Universal Components docs already define.
+> - **Determine the path from the decision tree in "Choose Your Path" — do not ask the user to choose.** Detect the project state and follow the tree. Only ask if the project state is genuinely ambiguous after detection.
+> - **Empty codebase with no specified stack:** scaffold Next.js, bootstrap with SaaStart, and use Universal Components. Inform the user of the choice, do not ask.
 > - **NEVER create a database.** Do not introduce Prisma, Supabase, MongoDB, SQLite, PostgreSQL, or any other database or ORM at any point in this implementation. **Auth0 is the source of organizations and users.** Organizations exist in Auth0. Users exist in Auth0. All org and user data must be read directly from Auth0 — via the My Organization API, Management API, or session. There is no need to store, sync, or mirror this data in a database. Creating a database to store users or organizations is incorrect and must not be done unless the user explicitly and specifically asks for it.
 > - **Do not ask the user what features or capabilities they want in the dashboard.** The features are determined by what My Organization API supports — they are not configurable. Proceed directly to implementation. My Organization API supports: SSO provider setup, organization settings, and branding. If the user asks about anything else (billing, subscriptions, app settings, user profiles, usage logs, member management, etc.), explain that it is not yet supported by My Organization API and they will need to use the Management API directly with organization-awareness built in (scoping all calls to the user's `org_id`).
 > - **Before starting the dev server, always run the pre-flight checks in "Configure Application URLs" and fix any issues found automatically** — do not wait for the user to encounter errors. Check and fix: callback/logout/web origin URLs on the Auth0 application, required env vars in `.env.local`, and org membership for the test user. If anything is missing, fix it silently and confirm what was done.
@@ -68,18 +69,29 @@ Once you understand the concept, use the **Choose Your Path** table below to det
 
 ## Choose Your Path
 
-Use the detected tenant configuration and project state to select a path — do not prompt the user to choose:
+Detect the project state and follow this decision tree. Do not ask the user to choose a path.
 
-| | SaaStart | API-only | UI Components |
-|---|---|---|---|
-| **Starting point** | Any — existing tenant is fine | Existing delegated admin setup | Existing delegated admin setup |
-| **What you build** | Full portal from reference app | Custom UI calling My Org API directly | Drop-in components from `@auth0/universal-components-react` |
-| **Best for** | Fastest path to a working portal | Full control over UX | Pre-built, consistent UI |
-| **Jump to** | Step 2 → SaaStart | Step 2 → Key Patterns | Step 2 → UI Components |
+```
+Does an existing codebase exist?
+│
+├── NO → Use SaaStart (Step 2 → SaaStart)
+│         Clone, bootstrap, and run. Do not build from scratch.
+│
+└── YES → Does the app already have UI for the delegated admin use case
+          (e.g. SSO provider management, org settings)?
+          │
+          ├── YES → Port existing Management API calls to My Org API
+          │         (Step 2 → Porting to My Org API)
+          │         Do not rebuild the UI. Just swap the API calls.
+          │
+          └── NO → Add UI using Universal Components
+                    (Step 2 → UI Components)
+                    If the framework is incompatible with Universal Components,
+                    rebuild the UI calling My Org API directly.
+```
 
 **What you need ready (all paths):**
 - Auth0 tenant with Organizations enabled
-- One test application configured
 - Node.js v20+ and npm installed
 - Auth0 CLI: `npm i -g auth0`
 
@@ -261,15 +273,20 @@ npm run dev
 
 **What SaaStart already includes:** The reference app ships with the Auth0Client configuration, middleware, and permission validation patterns from Steps 2 and 3 already implemented. After bootstrapping, review these patterns to understand how the app works and customize them for your needs — you don't need to implement them from scratch.
 
-**Integrating into an existing app?** Skip the clone and use the key implementation patterns below directly.
+### Porting Existing Management API Calls to My Org API
 
-### Key Implementation Patterns
+Use this path when an existing app already has UI for a delegated admin use case (e.g. SSO provider management) and you need to move those API calls from the Management API to My Org API. **Do not rebuild the UI** — only change the API layer.
 
-> **SaaStart note:** SaaStart names the Auth0Client instance `appClient` rather than `auth0`. If you bootstrapped with SaaStart, substitute `appClient` wherever you see `auth0` in the patterns below.
+#### Step 1: Add the My Organization SDK
 
-#### Organization-Scoped Authentication (My Organization API)
+```bash
+npm install @auth0/myorganization-js
+```
+
+Update `lib/auth0.ts` to request the My Org API audience and scopes. SaaStart users: this file is named `lib/app-client.ts` and exports `appClient` — update in place:
+
 ```typescript
-// lib/auth0.ts
+// lib/auth0.ts (or lib/app-client.ts in SaaStart)
 const MY_ORG_SCOPES = [
   'openid', 'profile', 'email', 'offline_access',
   'read:my_org:details', 'update:my_org:details',
@@ -287,14 +304,8 @@ export const auth0 = new Auth0Client({
 })
 ```
 
-#### Making API Calls with the My Organization SDK
+Initialize the My Org client with the **token supplier pattern**:
 
-Install the SDK:
-```bash
-npm install @auth0/myorganization-js
-```
-
-Initialize the client using the **token supplier pattern** — it dynamically fetches a scoped access token per call:
 ```typescript
 // lib/my-org-client.ts
 import { MyOrganizationClient } from '@auth0/myorganization-js'
@@ -309,14 +320,22 @@ export const myOrgClient = new MyOrganizationClient({
 })
 ```
 
-Use the client in your server actions or route handlers:
+#### Step 2: Replace Management API calls with My Org API calls
+
+The typical use case is SSO provider management. Replace calls like this:
+
 ```typescript
+// Before: Management API (requires M2M token, backend-only)
+await managementClient.connections.get({ id: connectionId })
+await managementClient.connections.create({ ... })
+
+// After: My Org API (uses user's org-scoped token)
 import { myOrgClient } from '@/lib/my-org-client'
 import { MyOrganizationError } from '@auth0/myorganization-js'
 
 try {
-  const details = await myOrgClient.organization.details.get()
-  // use details...
+  const providers = await myOrgClient.identityProviders.getAll()
+  // or: await myOrgClient.identityProviders.create({ ... })
 } catch (err) {
   if (err instanceof MyOrganizationError) {
     console.error(err.statusCode, err.message)
@@ -351,9 +370,13 @@ export const createInvitation = withServerActionAuth(
 )
 ```
 
-#### UI Components
+### UI Components
 
-`@auth0/universal-components-react` provides pre-built React components for common delegated admin workflows — organization details editing, SSO provider setup, and more. Use these when the user wants pre-built UI; use the API-only pattern when they want full control over their UX.
+Use this path when an existing app does **not** yet have UI for a delegated admin use case. Add it using `@auth0/universal-components-react` — do not build custom forms from scratch. Follow the [Universal Components docs](https://auth0.com/docs/get-started/universal-components/universal-components-overview) exactly.
+
+If the project's framework is incompatible with Universal Components (non-React), rebuild the UI in whatever framework is available — but still call My Org API directly using the SDK pattern above.
+
+`@auth0/universal-components-react` provides pre-built React components for SSO provider setup, organization details editing, and more.
 
 **Install dependencies:**
 ```bash
