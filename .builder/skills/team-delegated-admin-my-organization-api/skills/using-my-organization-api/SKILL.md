@@ -129,10 +129,24 @@ Only ask the user for their Auth0 domain if all sources return nothing.
 
 ### Validate Auth0 CLI Session
 
-Once the domain is known, validate the CLI session before running any Auth0 operations:
+First, confirm the Auth0 CLI is available in the shell — the validation script uses Node.js `execFileSync` which does not inherit the full shell PATH, so check reachability in bash first:
 
 ```bash
-node <skill-path>/scripts/validate-auth0.mjs --domain <tenant-domain>
+which auth0 || command -v auth0
+```
+
+If not found, install it:
+```bash
+# macOS
+brew install auth0
+
+# Other platforms: https://github.com/auth0/auth0-cli#installation
+```
+
+Once confirmed available, run the validation script with the full shell PATH forwarded so Node.js can find the `auth0` binary:
+
+```bash
+PATH="$PATH" node <skill-path>/scripts/validate-auth0.mjs --domain <tenant-domain>
 ```
 
 If the script returns an error, follow the `fallback_instructions` in the output to re-authenticate, then re-run before continuing.
@@ -174,7 +188,7 @@ Determine which Auth0 application to configure:
 For all other paths (API-only, UI Components), run `bootstrap.mjs` to idempotently configure all required Auth0 resources: My Organization API resource server, application client, callback/logout/web origin URLs, client grants, database connection, admin role, and demo organization.
 
 ```bash
-node <skill-path>/scripts/bootstrap.mjs \
+PATH="$PATH" node <skill-path>/scripts/bootstrap.mjs \
   --domain <tenant-domain> \
   --features myorg \
   --framework nextjs \
@@ -193,10 +207,24 @@ The script is **idempotent** — safe to re-run if it fails partway through. If 
 
 ### Verify Setup
 
-After bootstrapping (or after the SaaStart bootstrap), run `verify-setup.mjs` to confirm everything is wired up correctly before starting the dev server:
+Before starting the dev server, check that the installed Next.js version satisfies the peer dependency range declared by `@auth0/nextjs-auth0`:
 
 ```bash
-node <skill-path>/scripts/verify-setup.mjs \
+node -e "
+const auth0Pkg = require('./node_modules/@auth0/nextjs-auth0/package.json');
+const nextPkg = require('./node_modules/next/package.json');
+const peer = auth0Pkg.peerDependencies?.next || 'not declared';
+console.log('Next.js installed:', nextPkg.version);
+console.log('Peer dep range:', peer);
+"
+```
+
+If the installed Next.js version is outside the declared peer range, downgrade Next.js to the latest compatible version or pin it in `package.json`. Mismatched versions cause `workUnitAsyncStorage` invariant errors at runtime.
+
+Then run `verify-setup.mjs` to confirm everything is wired up correctly before starting the dev server:
+
+```bash
+PATH="$PATH" node <skill-path>/scripts/verify-setup.mjs \
   --project-root <project-root> \
   --framework <framework> \
   --css-path <cssPath>
@@ -447,6 +475,8 @@ export default function RootLayout({ children }) {
 // app/dashboard/organization/details/page.tsx
 import { OrganizationDetailsEdit } from '@auth0/universal-components-react/rwa'
 
+export const dynamic = 'force-dynamic'
+
 export default function OrganizationDetailsPage() {
   return <OrganizationDetailsEdit />
 }
@@ -456,6 +486,8 @@ export default function OrganizationDetailsPage() {
 // app/dashboard/organization/sso/create/page.tsx
 import { SsoProviderCreate } from '@auth0/universal-components-react/rwa'
 import { useRouter } from 'next/navigation'
+
+export const dynamic = 'force-dynamic'
 
 export default function SsoProviderCreatePage() {
   const router = useRouter()
@@ -501,6 +533,8 @@ export const updateMfaPolicy = withServerActionAuth(
 ---
 
 ## Step 3: Backend Validation
+
+> **Add `export const dynamic = 'force-dynamic'` to every auth-gated server component page or layout that calls `auth0.getSession()` or any async Auth0 API.** This prevents the `workUnitAsyncStorage` invariant error on Next.js 15.5.x and is a safe default for all protected pages.
 
 ### Organization Context Middleware
 ```typescript
@@ -665,6 +699,14 @@ Every mistake here has been reported by developers implementing My Organization 
   4. Confirm `AUTH0_DOMAIN` matches the tenant the app was created on
   5. Restart the dev server
 - **Verify:** Run `node <skill-path>/scripts/verify-setup.mjs --project-root . --framework nextjs` and confirm `env_vars_present` passes ✓
+
+**14. `workUnitAsyncStorage` invariant error on Next.js 15.5.x**
+- **Cause:** Next.js 15.5.x changed how async context is propagated in server components. Calling `auth0.getSession()` or other async Auth0 APIs from a server component page without opting out of static rendering triggers the invariant error.
+- **Fix:**
+  1. Add `export const dynamic = 'force-dynamic'` to every auth-gated server component page or layout that calls async Auth0 APIs
+  2. If the error persists, check that the installed Next.js version is within the peer dep range of `@auth0/nextjs-auth0`: `cat node_modules/@auth0/nextjs-auth0/package.json | grep -A3 peerDependencies`
+  3. If Next.js is too new, pin it: `npm install next@<compatible-version>`
+- **Verify:** Pages load without the invariant error in the console ✓
 
 **13. Dev server crashes on startup with TCP/socket errors**
 - **Cause:** A bad Auth0 configuration (missing or mismatched env vars) causes the Next.js server to throw during module initialization, which crashes the process before it can bind to the port
