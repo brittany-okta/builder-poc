@@ -9,7 +9,7 @@ metadata:
 # Using My Organization API
 
 > **Agent instructions — read before responding:**
-> - **Never ask if the user has an Auth0 account or tenant.** Always detect it. Check env files, the Auth0 CLI, and the CLI config (see Step 1) before asking anything about Auth0 setup.
+> - **Never ask if the user has an Auth0 account or tenant.** Always detect it. Check env files, the Auth0 CLI, the CLI config, and — as a final fallback — call the Auth0 MCP tool `mcp__auth0_mcp__auth0_get_tenant_name()` to retrieve the tenant domain directly. Only ask the user if all of these return nothing.
 > - Only ask about organization selection when multiple organizations exist in the tenant.
 > - **Assume React and Next.js unless the user specifies otherwise.** My Organization API and its tooling are optimized for this stack. Do not ask about framework unless the user has indicated they are not using Next.js.
 > - **Prefer Auth0 CLI and Auth0 developer tooling over manual steps wherever possible.** Use `auth0` CLI commands, the scripts in `<skill-path>/scripts/`, Auth0 SDKs (`@auth0/nextjs-auth0`, `@auth0/myorganization-js`, `@auth0/universal-components-react`), and the Auth0 Dashboard before reaching for general-purpose tools or writing custom implementations.
@@ -19,6 +19,9 @@ metadata:
 > - **NEVER create a database.** Do not introduce Prisma, Supabase, MongoDB, SQLite, PostgreSQL, or any other database or ORM at any point in this implementation. **Auth0 is the source of organizations and users.** Organizations exist in Auth0. Users exist in Auth0. All org and user data must be read directly from Auth0 — via the My Organization API, Management API, or session. There is no need to store, sync, or mirror this data in a database. Creating a database to store users or organizations is incorrect and must not be done unless the user explicitly and specifically asks for it.
 > - **Do not ask the user what features or capabilities they want in the dashboard.** The features are determined by what My Organization API supports — they are not configurable. Proceed directly to implementation. My Organization API supports: SSO provider setup, organization settings, and branding. If the user asks about anything else (billing, subscriptions, app settings, user profiles, usage logs, member management, etc.), explain that it is not yet supported by My Organization API and they will need to use the Management API directly with organization-awareness built in (scoping all calls to the user's `org_id`).
 > - **Before starting the dev server, always run the pre-flight checks in "Configure Application URLs" and fix any issues found automatically** — do not wait for the user to encounter errors. Check and fix: callback/logout/web origin URLs on the Auth0 application, required env vars in `.env.local`, and org membership for the test user. If anything is missing, fix it silently and confirm what was done.
+> - **Try local before suggesting deployment.** Always attempt `npm run build` and `npm run dev` locally first. Do not suggest Vercel or any other deployment platform as a resolution path — deployment is out of scope for this skill and cannot be validated from within the agent environment.
+> - **When referencing SaaStart or any README, cite specific sections by name** (e.g. "Step Five: Run the sample application") rather than giving generic "check the README" advice.
+> - **If `EAGAIN: resource temporarily unavailable` appears**, explain that this is an OS-level file descriptor limit, not a code bug, and that it cannot be resolved from within the agent environment. Instruct the user to retry the command in their terminal outside the agent.
 
 **Delegated admin** lets your B2B customers manage their own organization—SSO providers, branding, and settings—without you doing it for them or giving them access to Auth0 directly. My Organization API is the Auth0 feature that makes this possible.
 
@@ -125,7 +128,13 @@ auth0 tenants list        # use the active tenant
 cat ~/.config/auth0/config.json 2>/dev/null | grep '"default_tenant"'
 ```
 
-Only ask the user for their Auth0 domain if all sources return nothing.
+If the CLI config also returns nothing, call the Auth0 MCP tool before asking the user:
+```
+mcp__auth0_mcp__auth0_get_tenant_name()
+```
+This tool is always available in the environment and returns the tenant domain directly. Use its output as the domain for all subsequent steps.
+
+Only ask the user for their Auth0 domain if all four sources return nothing.
 
 ### Validate Auth0 CLI Session
 
